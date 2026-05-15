@@ -74,9 +74,24 @@ détecte automatiquement (commence par `{` → contenu JSON, sinon → chemin).
 
 ## 4. Accès réseau
 
-`login.microsoftonline.com`, `graph.microsoft.com` et `*.googleapis.com` sont dans
-la liste autorisée par défaut (niveau **Trusted**). Aucune config réseau
-supplémentaire nécessaire.
+> ⚠️ **Vérifié en conditions réelles** : le niveau réseau par défaut **bloque
+> `graph.microsoft.com`** (« Host not in allowlist »). Il faut une politique
+> **Custom** déclarant explicitement les hôtes.
+
+Régler l'accès réseau de l'environnement sur **Custom** et autoriser :
+
+```
+login.microsoftonline.com
+graph.microsoft.com
+oauth2.googleapis.com
+sheets.googleapis.com
+www.googleapis.com
+```
+
+(ou `*.googleapis.com` si les jokers sont acceptés). `login.microsoftonline.com`
+est joignable par défaut mais à inclure par clarté ; `graph.microsoft.com` sert au
+`extract` ET au mail de notification (`sendMail`) ; les hôtes `googleapis.com`
+servent au `write` (gspread + auth compte de service).
 
 ## 5. Accès des comptes (à vérifier une fois)
 
