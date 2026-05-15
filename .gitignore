@@ -1,0 +1,17 @@
+# Secrets — NE JAMAIS committer
+.env
+*.json
+!.devcontainer/*.json
+CLE JSON/
+
+# Fichiers de travail (régénérés à chaque cycle, environnement éphémère)
+pdfs/
+pdfs_extracted.json
+analyses.json
+*.merged.pdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
