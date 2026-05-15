@@ -21,6 +21,11 @@ fois puis mis en cache — il ne doit donc rien faire de dynamique) :
 ```bash
 #!/bin/bash
 set -e
+# Les PPA tierces pré-installées dans l'image (deadsnakes, ondrej/php) sont
+# bloquées par le réseau de la routine (403 Forbidden) et font échouer
+# apt-get update. On les retire : nos paquets sont dans les dépôts Ubuntu
+# officiels, qui fonctionnent.
+rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
 apt-get update
 apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-fra
 pip install -r requirements.txt
