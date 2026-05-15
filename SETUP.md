@@ -28,8 +28,13 @@ set -e
 rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
 apt-get update
 apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-fra
-pip install -r requirements.txt
+# Le script de setup tourne sans le dépôt cloné → on installe les paquets
+# par leur nom, pas via -r requirements.txt (le fichier n'est pas là).
+pip install gspread google-auth requests pypdf
 ```
+
+> `requirements.txt` reste la référence (versions, install locale). Le script de
+> setup, lui, liste les paquets en clair car il s'exécute hors du dépôt.
 
 - `poppler-utils` → `pdftotext`, `pdftoppm`
 - `tesseract-ocr` + `tesseract-ocr-fra` → fallback OCR pour les PDF scannés
