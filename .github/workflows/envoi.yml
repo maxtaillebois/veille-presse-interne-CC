@@ -11,6 +11,7 @@ on:
 jobs:
   envoi:
     runs-on: ubuntu-latest
+    environment: Veille presse interne
 
     steps:
       - name: Checkout
