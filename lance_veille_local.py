@@ -479,7 +479,7 @@ def run_envoi(args):
         c.strip()
         for c in os.environ.get(
             "ENVOI_CC",
-            "maxime.taillebois@procivis.fr,aurelie.hennetier@procivis.fr",
+            "aurelie.hennetier@procivis.fr",
         ).split(",")
         if c.strip()
     ]

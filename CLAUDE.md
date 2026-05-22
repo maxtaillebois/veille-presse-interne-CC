@@ -9,8 +9,8 @@ réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui
 - Mise au point / contexte historique : `../MIGRATION_N8N_VERS_CLAUDE_CODE.md`.
 
 > ⚠️ **En cas de divergence avec `MIGRATION_N8N_VERS_CLAUDE_CODE.md`, CE fichier fait
-> foi.** Le brief dit « CC = Aurélie seule » : **c'est faux**. Préférence confirmée
-> par Maxime → **CC = Maxime + Aurélie** (cf. « Format du mail »).
+> foi.** Le mail partant de la boîte de Maxime, il n'a pas besoin d'être en CC.
+> Préférence confirmée → **CC = Aurélie uniquement**.
 
 ## Périmètre (ne pas changer)
 
@@ -54,7 +54,7 @@ fourni par Maxime).
 4. Rédiger le mail (voir « Format du mail »), **présenter le brouillon à Maxime
    pour validation**, puis envoyer via Microsoft Graph :
    - TO : `stephanie@papiersdesoi.fr`
-   - **CC : `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr`**
+   - **CC : `aurelie.hennetier@procivis.fr`** (Maxime est expéditeur, pas besoin de CC)
    - PJ : le PDF fusionné
 5. Après envoi réussi **uniquement** : `python3 lance_veille_local.py purge`
    (vide les lignes du Sheet — en-tête conservé — et supprime les fichiers de travail).
@@ -65,7 +65,7 @@ fourni par Maxime).
 - Ton : **tutoiement** — « Hello Stéphanie » / « Bien à toi » (prestataire habituelle).
 - Liste des articles dans l'ordre **`Média | Titre | Date`** (pas Média | Date | Titre).
 - **Pas de glose** entre parenthèses derrière le titre.
-- **CC = Maxime + Aurélie** (Maxime EST en CC — corrige l'erreur du brief de migration).
+- **CC = Aurélie uniquement** (Maxime est expéditeur → déjà dans les envoyés).
 
 ## Purge
 
@@ -93,14 +93,13 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
 | Colonnes (10) | Semaine, Média, Titre, Date publication, Résumé, Mots-clés trouvés, Contexte citations, Nom fichier PDF, *(col. 9 vide — ex-Drive, abandonnée)*, Sélectionné |
 | Page de sélection | `https://maxtaillebois.github.io/procivis-veille-interne/` (repo `maxtaillebois/procivis-veille-interne`) |
 | Boîte Outlook (lecture + envoi) | `maxime.taillebois@procivis.fr` |
-| Destinataire mail final | TO `stephanie@papiersdesoi.fr` — **CC `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr`** |
+| Destinataire mail final | TO `stephanie@papiersdesoi.fr` — **CC `aurelie.hennetier@procivis.fr`** |
 | Filtre sujets Outlook | « retombees », « retombée », « PANORAMA DE PRESSE » — < 7 j, avec PJ |
 | n8n à désactiver après bascule | W1 `KgSSxM4fCLnvBVTy` · W2 `LgqS9YPx77vPkoI1` · W3 `C7yzQTLVcIfl3aqG` · W4 `al4Sh59yAfsxGRAn` |
 
 ## Page HTML de sélection — à corriger (autre repo)
 
 Dans `maxtaillebois/procivis-veille-interne/index.html`, la `CONFIG` actuelle a
-`DEFAULT_CC_EMAILS` = Maxime + Aurélie : **c'est correct, ne pas le réduire à
-Aurélie**. Le `POST` du bouton vise encore le webhook n8n : en v1, la page reste un
-outil de coche (la sélection est relue depuis le Sheet) ; recâbler le bouton vers la
-routine ENVOI relève de la v2 (cf. brief, section 6 — réserves CORS/token à lever).
+`DEFAULT_CC_EMAILS` = Aurélie uniquement (Maxime est expéditeur). Le bouton est
+désormais câblé vers le proxy Cloudflare Worker (`veille-dispatch.maxime-taillebois.workers.dev`)
+qui déclenche `envoi.yml` via GitHub Actions.
