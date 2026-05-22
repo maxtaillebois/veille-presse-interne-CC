@@ -368,6 +368,154 @@ def run_purge(args):
     log(f"→ {n_data} ligne(s) supprimée(s) du Sheet (en-tête conservé)", "green")
 
 
+# ─── Mode ENVOI ─────────────────────────────────────────────────────────────
+
+def run_envoi(args):
+    """Fetch PDF → merge → mail Stéphanie → purge. Déclenché par le bouton HTML."""
+    log("=== Mode ENVOI ===", "bold")
+
+    # 1. Liste des fichiers à traiter (--names ou lecture Sheet colonne Sélectionné)
+    if args.names:
+        wanted = [safe_pdf_name(n.strip()) for n in args.names.split(",") if n.strip()]
+    else:
+        ws = open_sheet()
+        rows = ws.get_all_values()
+        if not rows:
+            log("ERREUR : Sheet vide.", "red"); sys.exit(1)
+        hdr = [h.strip().lower() for h in rows[0]]
+        def _ci(*cands):
+            for c in cands:
+                try: return hdr.index(c)
+                except ValueError: pass
+            return -1
+        i_file = _ci("nom fichier pdf")
+        i_sel  = _ci("sélectionné")
+        if i_file < 0 or i_sel < 0:
+            log("ERREUR : colonnes 'Nom fichier PDF' ou 'Sélectionné' introuvables.", "red")
+            sys.exit(1)
+        wanted = [
+            safe_pdf_name(r[i_file])
+            for r in rows[1:]
+            if len(r) > max(i_file, i_sel) and r[i_sel].strip().lower() == "true"
+        ]
+
+    if not wanted:
+        log("Aucun article sélectionné. Fin.", "yellow"); sys.exit(0)
+    log(f"{len(wanted)} article(s) : {', '.join(wanted)}")
+
+    # 2. Métadonnées depuis le Sheet (media, titre, date — pour le corps du mail)
+    ws = open_sheet()
+    rows = ws.get_all_values()
+    hdr = [h.strip().lower() for h in rows[0]] if rows else []
+    def _ci(*cands):
+        for c in cands:
+            try: return hdr.index(c)
+            except ValueError: pass
+        return -1
+    i_media = _ci("média", "media")
+    i_titre = _ci("titre")
+    i_date  = _ci("date publication", "date_publication")
+    i_file  = _ci("nom fichier pdf")
+    meta = {}
+    for r in rows[1:]:
+        if i_file >= 0 and i_file < len(r) and r[i_file].strip():
+            fn = safe_pdf_name(r[i_file])
+            meta[fn] = {
+                "media": r[i_media] if i_media >= 0 and i_media < len(r) else "",
+                "titre": r[i_titre] if i_titre >= 0 and i_titre < len(r) else fn,
+                "date":  r[i_date]  if i_date  >= 0 and i_date  < len(r) else "",
+            }
+    articles_meta = [meta.get(f, {"media": "", "titre": f, "date": ""}) for f in wanted]
+
+    # 3. Télécharger les PDF depuis Outlook
+    pdf_dir = Path(args.pdf_dir)
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    token = outlook_get_token()
+    msgs  = outlook_search_messages(token, days=args.days)
+    found = set()
+    for m in msgs:
+        if set(wanted) <= found:
+            break
+        for pdf in outlook_get_pdf_attachments(token, m["id"]):
+            fname = safe_pdf_name(pdf["name"])
+            if fname in set(wanted) and fname not in found:
+                save_pdf(pdf_dir, pdf["name"], pdf["content_bytes"])
+                found.add(fname)
+                log(f"  ✓ {fname}", "green")
+    missing = set(wanted) - found
+    if missing:
+        log(f"  ✗ PDF introuvables : {', '.join(sorted(missing))}", "red")
+        log("    → élargir --days si l'envoi est lancé longtemps après la collecte.", "yellow")
+        sys.exit(1)
+
+    # 4. Fusionner les PDF dans l'ordre de sélection
+    from pypdf import PdfWriter
+    writer = PdfWriter()
+    for fname in wanted:
+        writer.append(str(pdf_dir / fname))
+    merged_path = pdf_dir / "veille_procivis_envoi.pdf"
+    with open(merged_path, "wb") as fh:
+        writer.write(fh)
+    log(f"→ PDF fusionné ({len(wanted)} articles) : {merged_path}", "green")
+
+    # 5. Envoyer le mail à Stéphanie via Microsoft Graph
+    semaine = get_week_label()
+    lignes_html = "".join(
+        f"<li>{a['media']} | {a['titre']} | {a['date']}</li>"
+        for a in articles_meta
+    )
+    body_html = (
+        f"<p>Hello Stéphanie,</p>"
+        f"<p>Voici la sélection de la veille presse Procivis pour la semaine {semaine} :</p>"
+        f"<ul>{lignes_html}</ul>"
+        f"<p>Les articles sont en pièce jointe.</p>"
+        f"<p>Bien à toi,<br>Maxime</p>"
+    )
+    with open(merged_path, "rb") as fh:
+        pdf_b64 = base64.b64encode(fh.read()).decode()
+
+    to_email = os.environ.get("ENVOI_TO", "stephanie@papiersdesoi.fr")
+    cc_list  = [
+        c.strip()
+        for c in os.environ.get(
+            "ENVOI_CC",
+            "maxime.taillebois@procivis.fr,aurelie.hennetier@procivis.fr",
+        ).split(",")
+        if c.strip()
+    ]
+    token_graph = outlook_get_token()
+    user = require_env("OUTLOOK_USER")
+    mail = {
+        "message": {
+            "subject": f"Veille presse Procivis — {semaine}",
+            "body": {"contentType": "HTML", "content": body_html},
+            "toRecipients": [{"emailAddress": {"address": to_email}}],
+            "ccRecipients": [{"emailAddress": {"address": cc}} for cc in cc_list],
+            "attachments": [{
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": f"veille_procivis_{semaine}.pdf",
+                "contentType": "application/pdf",
+                "contentBytes": pdf_b64,
+            }],
+        },
+        "saveToSentItems": True,
+    }
+    r = requests.post(
+        f"https://graph.microsoft.com/v1.0/users/{user}/sendMail",
+        headers={"Authorization": f"Bearer {token_graph}", "Content-Type": "application/json"},
+        json=mail,
+        timeout=60,
+    )
+    r.raise_for_status()
+    log(f"→ Mail envoyé à {to_email} (CC : {', '.join(cc_list)})", "green")
+
+    # 6. Purge (uniquement après envoi réussi)
+    run_purge(argparse.Namespace(
+        pdf_dir=args.pdf_dir, sheet_only=False, files_only=False, dry_run=False,
+    ))
+    log("=== ENVOI TERMINÉ ===", "bold")
+
+
 # ─── CLI ────────────────────────────────────────────────────────────────────
 
 def main():
@@ -397,9 +545,14 @@ def main():
     pp.add_argument("--files-only", action="store_true")
     pp.add_argument("--dry-run", action="store_true")
 
+    penv = sub.add_parser("envoi", help="fetch + merge PDF + mail Stéphanie + purge")
+    penv.add_argument("--names", help="noms PDF séparés par des virgules (dans l'ordre voulu)")
+    penv.add_argument("--days", type=int, default=10)
+    penv.add_argument("--pdf-dir", default="pdfs")
+
     args = p.parse_args()
     {"extract": run_extract, "write": run_write,
-     "fetch": run_fetch, "purge": run_purge}[args.mode](args)
+     "fetch": run_fetch, "purge": run_purge, "envoi": run_envoi}[args.mode](args)
 
 
 if __name__ == "__main__":

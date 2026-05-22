@@ -1,0 +1,35 @@
+name: Envoi veille presse
+
+on:
+  workflow_dispatch:
+    inputs:
+      selected_files:
+        description: "Noms des PDF sélectionnés, séparés par des virgules (dans l'ordre voulu)"
+        required: true
+        type: string
+
+jobs:
+  envoi:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          rm -f /etc/apt/sources.list.d/*deadsnakes* /etc/apt/sources.list.d/*ondrej*
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-fra
+
+      - name: Install Python dependencies
+        run: pip install gspread google-auth requests pypdf cryptography
+
+      - name: Run ENVOI
+        env:
+          OUTLOOK_TENANT: ${{ secrets.OUTLOOK_TENANT }}
+          OUTLOOK_CLIENT_ID: ${{ secrets.OUTLOOK_CLIENT_ID }}
+          OUTLOOK_CLIENT_SECRET: ${{ secrets.OUTLOOK_CLIENT_SECRET }}
+          OUTLOOK_USER: ${{ secrets.OUTLOOK_USER }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+        run: python3 lance_veille_local.py envoi --names "${{ inputs.selected_files }}"
