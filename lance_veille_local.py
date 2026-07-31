@@ -485,10 +485,6 @@ def run_envoi(args):
         log(f"    • {a['media']} | {a['titre'][:60]} | {a['date']}"
             + (f"  [{f} p.{p}]" if p else f"  [{f}]"), "gray")
 
-    if args.dry_run:
-        log("DRY RUN — aucun PDF fusionné, aucun mail envoyé, aucune purge.", "yellow")
-        return
-
     # 3. Télécharger chaque PDF source depuis Outlook, une seule fois par nom
     #    (plusieurs articles peuvent partager le même fichier compilé).
     pdf_dir = Path(args.pdf_dir)
@@ -526,7 +522,8 @@ def run_envoi(args):
     merged_path = pdf_dir / "veille_procivis_envoi.pdf"
     with open(merged_path, "wb") as fh:
         writer.write(fh)
-    log(f"→ PDF fusionné ({len(wanted)} articles) : {merged_path}", "green")
+    n_pages = len(PdfReader(str(merged_path)).pages)
+    log(f"→ PDF fusionné ({len(wanted)} articles, {n_pages} pages) : {merged_path}", "green")
 
     # 5. Envoyer le mail à Stéphanie via Microsoft Graph
     semaine = get_week_label()
@@ -541,6 +538,17 @@ def run_envoi(args):
         f"<p>Les articles sont en pièce jointe.</p>"
         f"<p>Bien à toi,<br>Maxime</p>"
     )
+
+    if args.dry_run:
+        log("", None)
+        log("DRY RUN — corps du mail qui serait envoyé :", "yellow")
+        for a in articles_meta:
+            log(f"    • {a['media']} | {a['titre']} | {a['date']}", "blue")
+        log(f"  PJ : {merged_path.name} — {n_pages} pages, "
+            f"{merged_path.stat().st_size / 1024:.0f} Ko", "blue")
+        log("Aucun mail envoyé, aucune purge.", "yellow")
+        return
+
     with open(merged_path, "rb") as fh:
         pdf_b64 = base64.b64encode(fh.read()).decode()
 
