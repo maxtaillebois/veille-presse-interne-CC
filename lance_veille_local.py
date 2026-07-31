@@ -140,6 +140,31 @@ def safe_pdf_name(name):
     return base
 
 
+def split_name_pages(token):
+    """« fichier.pdf » ou « fichier.pdf@debut-fin » (plage 1-indexée, incluse) →
+    (nom_fichier, pages_str). pages_str vide = tout le fichier (PDF à un seul
+    article). Un même PDF « revue de presse » compilant plusieurs coupures aura
+    plusieurs lignes de Sheet partageant le même nom de fichier mais des pages
+    différentes : c'est cette plage qui les distingue, pas le seul nom."""
+    fname, _, pages = token.partition("@")
+    return fname.strip(), pages.strip()
+
+
+def page_range_to_slice(pages_str):
+    """« 5 » ou « 5-6 » (1-indexé, inclus) → tuple (debut0, fin0) pour
+    PdfWriter.append(..., pages=...) (0-indexé, fin exclue). None si vide
+    (= tout le fichier)."""
+    pages_str = (pages_str or "").strip()
+    if not pages_str:
+        return None
+    if "-" in pages_str:
+        a, b = pages_str.split("-", 1)
+        start, end = int(a), int(b)
+    else:
+        start = end = int(pages_str)
+    return (start - 1, end)
+
+
 def save_pdf(pdf_dir, name, content_b64):
     pdf_dir.mkdir(parents=True, exist_ok=True)
     path = pdf_dir / safe_pdf_name(name)
@@ -279,7 +304,9 @@ def run_write(args):
             ", ".join(a.get("mots_cles_trouves", [])),
             contexte_str,
             a.get("file_name", ""),
-            "",                       # col 9 — ex « ID fichier Drive », abandonnée
+            a.get("pages", ""),       # col 9 — Pages PDF (ex: "2-3" ; vide = tout
+                                       # le fichier). Distingue plusieurs coupures
+                                       # partageant un même PDF « revue de presse ».
             "false",                  # col 10 — Sélectionné
         ])
     ws.append_rows(rows, value_input_option="USER_ENTERED")
@@ -300,7 +327,9 @@ def run_fetch(args):
     if args.names_file:
         wanted += [l.strip() for l in Path(args.names_file).read_text(
             encoding="utf-8").splitlines() if l.strip()]
-    wanted_safe = {safe_pdf_name(n) for n in wanted}
+    # « fichier.pdf@2-3 » → on télécharge le fichier entier, la plage ne sert
+    # qu'à la fusion (mode ENVOI) — voir split_name_pages().
+    wanted_safe = {safe_pdf_name(split_name_pages(n)[0]) for n in wanted}
     if not wanted_safe:
         log("ERREUR : aucun nom de fichier fourni (--names ou --names-file).", "red")
         sys.exit(1)
@@ -371,42 +400,23 @@ def run_purge(args):
 # ─── Mode ENVOI ─────────────────────────────────────────────────────────────
 
 def run_envoi(args):
-    """Fetch PDF → merge → mail Stéphanie → purge. Déclenché par le bouton HTML."""
+    """Fetch PDF → merge → mail Stéphanie → purge. Déclenché par le bouton HTML.
+
+    Un même PDF « revue de presse » peut compiler plusieurs coupures (voir
+    colonne « Pages PDF »). Les articles sont donc identifiés par le couple
+    (nom de fichier, plage de pages), jamais par le seul nom de fichier —
+    sinon deux coupures différentes issues du même PDF s'écrasent l'une
+    l'autre côté métadonnées, et le PDF fusionné répète le fichier entier
+    au lieu de n'en extraire que les pages voulues.
+    """
     log("=== Mode ENVOI ===", "bold")
 
-    # 1. Liste des fichiers à traiter (--names ou lecture Sheet colonne Sélectionné)
-    if args.names:
-        wanted = [safe_pdf_name(n.strip()) for n in args.names.split(",") if n.strip()]
-    else:
-        ws = open_sheet()
-        rows = ws.get_all_values()
-        if not rows:
-            log("ERREUR : Sheet vide.", "red"); sys.exit(1)
-        hdr = [h.strip().lower() for h in rows[0]]
-        def _ci(*cands):
-            for c in cands:
-                try: return hdr.index(c)
-                except ValueError: pass
-            return -1
-        i_file = _ci("nom fichier pdf")
-        i_sel  = _ci("sélectionné")
-        if i_file < 0 or i_sel < 0:
-            log("ERREUR : colonnes 'Nom fichier PDF' ou 'Sélectionné' introuvables.", "red")
-            sys.exit(1)
-        wanted = [
-            safe_pdf_name(r[i_file])
-            for r in rows[1:]
-            if len(r) > max(i_file, i_sel) and r[i_sel].strip().lower() == "true"
-        ]
-
-    if not wanted:
-        log("Aucun article sélectionné. Fin.", "yellow"); sys.exit(0)
-    log(f"{len(wanted)} article(s) : {', '.join(wanted)}")
-
-    # 2. Métadonnées depuis le Sheet (media, titre, date — pour le corps du mail)
+    # 1. Métadonnées du Sheet, indexées par (fichier, pages) — un seul passage.
     ws = open_sheet()
     rows = ws.get_all_values()
-    hdr = [h.strip().lower() for h in rows[0]] if rows else []
+    if not rows:
+        log("ERREUR : Sheet vide.", "red"); sys.exit(1)
+    hdr = [h.strip().lower() for h in rows[0]]
     def _ci(*cands):
         for c in cands:
             try: return hdr.index(c)
@@ -416,43 +426,82 @@ def run_envoi(args):
     i_titre = _ci("titre")
     i_date  = _ci("date publication", "date_publication")
     i_file  = _ci("nom fichier pdf")
-    meta = {}
-    for r in rows[1:]:
-        if i_file >= 0 and i_file < len(r) and r[i_file].strip():
-            fn = safe_pdf_name(r[i_file])
-            meta[fn] = {
-                "media": r[i_media] if i_media >= 0 and i_media < len(r) else "",
-                "titre": r[i_titre] if i_titre >= 0 and i_titre < len(r) else fn,
-                "date":  r[i_date]  if i_date  >= 0 and i_date  < len(r) else "",
-            }
-    articles_meta = [meta.get(f, {"media": "", "titre": f, "date": ""}) for f in wanted]
+    i_pages = _ci("pages pdf", "id fichier drive")
+    i_sel   = _ci("sélectionné")
+    if i_file < 0 or i_sel < 0:
+        log("ERREUR : colonnes 'Nom fichier PDF' ou 'Sélectionné' introuvables.", "red")
+        sys.exit(1)
 
-    # 3. Télécharger les PDF depuis Outlook
+    meta = {}
+    sheet_selection = []
+    for r in rows[1:]:
+        if i_file >= len(r) or not r[i_file].strip():
+            continue
+        fname = safe_pdf_name(r[i_file])
+        pages = r[i_pages].strip() if 0 <= i_pages < len(r) else ""
+        key = (fname, pages)
+        meta[key] = {
+            "media": r[i_media] if 0 <= i_media < len(r) else "",
+            "titre": r[i_titre] if 0 <= i_titre < len(r) else fname,
+            "date":  r[i_date]  if 0 <= i_date  < len(r) else "",
+        }
+        if i_sel < len(r) and r[i_sel].strip().lower() == "true":
+            sheet_selection.append(key)
+
+    # 2. Liste des articles à traiter (--names, format "fichier.pdf@debut-fin",
+    #    ou lecture Sheet colonne Sélectionné).
+    if args.names:
+        wanted = []
+        for tok in args.names.split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            fname, pages = split_name_pages(tok)
+            wanted.append((safe_pdf_name(fname), pages))
+    else:
+        wanted = sheet_selection
+
+    if not wanted:
+        log("Aucun article sélectionné. Fin.", "yellow"); sys.exit(0)
+    log(f"{len(wanted)} article(s) : " +
+        ", ".join(f"{f}@{p}" if p else f for f, p in wanted))
+
+    articles_meta = [meta.get(w, {"media": "", "titre": w[0], "date": ""}) for w in wanted]
+
+    # 3. Télécharger chaque PDF source depuis Outlook, une seule fois par nom
+    #    (plusieurs articles peuvent partager le même fichier compilé).
     pdf_dir = Path(args.pdf_dir)
     pdf_dir.mkdir(parents=True, exist_ok=True)
+    base_files = {fname for fname, _ in wanted}
     token = outlook_get_token()
     msgs  = outlook_search_messages(token, days=args.days)
     found = set()
     for m in msgs:
-        if set(wanted) <= found:
+        if base_files <= found:
             break
         for pdf in outlook_get_pdf_attachments(token, m["id"]):
             fname = safe_pdf_name(pdf["name"])
-            if fname in set(wanted) and fname not in found:
+            if fname in base_files and fname not in found:
                 save_pdf(pdf_dir, pdf["name"], pdf["content_bytes"])
                 found.add(fname)
                 log(f"  ✓ {fname}", "green")
-    missing = set(wanted) - found
+    missing = base_files - found
     if missing:
         log(f"  ✗ PDF introuvables : {', '.join(sorted(missing))}", "red")
         log("    → élargir --days si l'envoi est lancé longtemps après la collecte.", "yellow")
         sys.exit(1)
 
-    # 4. Fusionner les PDF dans l'ordre de sélection
-    from pypdf import PdfWriter
+    # 4. Fusionner : chaque article n'apporte que ses pages (tout le fichier si
+    #    aucune plage n'est précisée), dans l'ordre de sélection.
+    from pypdf import PdfReader, PdfWriter
     writer = PdfWriter()
-    for fname in wanted:
-        writer.append(str(pdf_dir / fname))
+    for fname, pages in wanted:
+        reader = PdfReader(str(pdf_dir / fname))
+        page_slice = page_range_to_slice(pages)
+        if page_slice is None:
+            writer.append(reader)
+        else:
+            writer.append(reader, pages=page_slice)
     merged_path = pdf_dir / "veille_procivis_envoi.pdf"
     with open(merged_path, "wb") as fh:
         writer.write(fh)
@@ -534,7 +583,8 @@ def main():
     pw.add_argument("--dry-run", action="store_true")
 
     pf = sub.add_parser("fetch", help="re-télécharge des PDF par nom → ./pdfs/")
-    pf.add_argument("--names", help="noms de fichiers séparés par des virgules")
+    pf.add_argument("--names", help="noms de fichiers séparés par des virgules "
+                     "(un suffixe @debut-fin est toléré et ignoré ici)")
     pf.add_argument("--names-file", help="fichier texte, un nom par ligne")
     pf.add_argument("--days", type=int, default=10)
     pf.add_argument("--pdf-dir", default="pdfs")
@@ -546,7 +596,9 @@ def main():
     pp.add_argument("--dry-run", action="store_true")
 
     penv = sub.add_parser("envoi", help="fetch + merge PDF + mail Stéphanie + purge")
-    penv.add_argument("--names", help="noms PDF séparés par des virgules (dans l'ordre voulu)")
+    penv.add_argument("--names", help="noms PDF séparés par des virgules, dans l'ordre voulu ; "
+                     "pour une coupure au sein d'un PDF « revue de presse » compilant plusieurs "
+                     "articles, suffixer @debut-fin (pages 1-indexées, ex: clips.pdf@2-3)")
     penv.add_argument("--days", type=int, default=10)
     penv.add_argument("--pdf-dir", default="pdfs")
 
