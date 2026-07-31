@@ -295,6 +295,7 @@ def run_write(args):
     rows = []
     for a in analyses:
         contexte_str = json.dumps(a.get("contexte_citations", []), ensure_ascii=False)
+        pages = (a.get("pages", "") or "").strip()
         rows.append([
             week_label,
             a.get("media", ""),
@@ -304,10 +305,15 @@ def run_write(args):
             ", ".join(a.get("mots_cles_trouves", [])),
             contexte_str,
             a.get("file_name", ""),
-            a.get("pages", ""),       # col 9 — Pages PDF (ex: "2-3" ; vide = tout
-                                       # le fichier). Distingue plusieurs coupures
-                                       # partageant un même PDF « revue de presse ».
-            "false",                  # col 10 — Sélectionné
+            # col 9 — Pages PDF (ex: "2-3" ; vide = tout le fichier). Distingue
+            # plusieurs coupures partageant un même PDF « revue de presse ».
+            # Apostrophe de tête : force le TEXTE — sans elle, USER_ENTERED fait
+            # interpréter « 2-3 » comme une date par Sheets, et la plage devient
+            # illisible pour la page (gviz → Date(...)) comme pour select/envoi
+            # (get_all_values → « 02/03/2026 » qui ne matche plus rien).
+            ("'" + pages) if pages else "",
+            "false",                  # col 10 — Sélectionné (USER_ENTERED requis :
+                                       # la col. J est en cases à cocher BOOLEAN)
         ])
     ws.append_rows(rows, value_input_option="USER_ENTERED")
     log(f"→ {len(rows)} ligne(s) ajoutée(s) au Sheet", "green")

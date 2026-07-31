@@ -1,28 +1,5 @@
 # Veille Presse Procivis — routine Claude Code
 
-## ⚡ REPRISE — une action en attente (écrit le 2026-07-31, session précédente)
-
-**Tout le flux v2 est codé, testé et mergé sur `main` de CE dépôt. Il ne reste
-qu'UNE chose à faire : déployer la nouvelle page de sélection.**
-
-- Le fichier prêt : **`deploy/index.html`** (ce dépôt). Destination : remplacer
-  **`index.html` sur `main` du repo `maxtaillebois/procivis-veille-interne`**
-  (GitHub Pages). Mode d'emploi troué-normé : `deploy/README.md`.
-- Si la session a accès en écriture au repo `procivis-veille-interne` : copier le
-  fichier, committer sur `main` directement, vérifier que GitHub Pages redéploie
-  (~1 min), puis **supprimer `deploy/` et cette section REPRISE** de CLAUDE.md.
-- Si la session n'y a PAS accès (c'était le blocage de la session du 2026-07-31 :
-  périmètre GitHub de session figé, l'ouverture du domaine github.com ne suffit
-  pas) : guider Maxime — soit le collage manuel (lien direct dans
-  `deploy/README.md`), soit ajouter le repo à l'app GitHub « Claude »
-  (github.com/settings/installations) et rouvrir une session incluant ce repo.
-- Après déploiement, test de bout en bout SANS envoyer : cocher un article sur la
-  page (semaine avec données), vérifier via `envoi --dry-run` que la sélection
-  arrive bien — le circuit complet est décrit plus bas (« Page HTML de
-  sélection », « Pièges connus » → `envoi.yml`).
-- Contexte complet de la journée (3 mails erronés, causes, garde-fous) : section
-  « Journal — incident du 2026-07-31 ». **Ne pas re-diagnostiquer, c'est corrigé.**
-
 Ce dépôt remplace l'automatisation n8n (4 workflows) de la veille presse interne du
 réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui-même
 (plus d'appels API en boucle → le rate limit Anthropic 30K tokens/min disparaît).
@@ -137,6 +114,14 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
   `envoi` ne peut pas distinguer deux articles du même fichier : il répète le
   même titre dans le mail et duplique le fichier entier dans le PDF fusionné au
   lieu d'en extraire chaque coupure (incident du 2026-07-31).
+- **Colonne « Pages PDF » : toujours du TEXTE, jamais une date.** En
+  `USER_ENTERED`, Sheets interprète « 2-3 » comme une date → gviz renvoie
+  `Date(...)` à la page et `get_all_values` renvoie « 02/03/2026 » à
+  `select`/`envoi` : plus rien ne matche. `run_write` préfixe donc la plage
+  d'une apostrophe (forçage texte, invisible à l'affichage). Si on écrit cette
+  colonne à la main dans le Sheet, taper l'apostrophe aussi (`'2-3`). Ne pas
+  passer l'append en `RAW` : la colonne J (cases à cocher BOOLEAN) a besoin de
+  `USER_ENTERED` pour transformer « false » en vrai booléen.
 - **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch`, deux
   chemins. Input `selected_files` **rempli** (bouton de la page, format
   `fichier.pdf@debut-fin,...`) → `select` valide CHAQUE entrée contre le Sheet
@@ -184,12 +169,11 @@ colonne « Sélectionné ») puis `envoi --names`. Les coches de la page s'initi
 depuis la colonne « Sélectionné » au chargement. Le Sheet reste le pivot ; Maxime n'a
 plus à le toucher.
 
-Version de `index.html` requise pour ce flux : celle produite le 2026-07-31 (envoie
-`@pages` + initialise les coches depuis le Sheet). **Tant qu'elle n'est pas déployée
-sur `main` du repo de la page**, l'ancienne page envoie des noms nus : `select` les
-rejettera (échec propre, aucun mail) dès qu'une coupure de PDF compilé est en jeu —
-dans ce cas, cocher directement dans le Sheet et cliquer « Envoyer » sans sélection
-page, ou déclencher le workflow à la main.
+La page v2 (envoie `@pages` + initialise les coches depuis le Sheet) est **déployée
+sur `main` du repo de la page depuis le 2026-07-31** (commit `a8d7f84`) et vérifiée
+en ligne : sur une ligne de test réelle (Sélectionné = TRUE, Pages PDF = « 2-3 »),
+la coche s'initialise depuis le Sheet et le payload construit vaut bien
+`fichier.pdf@2-3`.
 
 ## Journal — incident du 2026-07-31 (à lire avant tout dépannage ENVOI)
 
@@ -244,6 +228,12 @@ sur `main` (PR #1 à #4), puis **architecture v2 du flux page → Sheet** (mode 
 workflow à deux chemins, nouvelle page — voir section « Page HTML de sélection »).
 Testé de bout en bout sur données réelles : select coche/décoche juste, rejette les
 noms nus sans rien écrire, `envoi --names` respecte l'ordre de la page, PDF découpé
-conforme. Reste ouvert : **déployer le nouveau `index.html` sur `main` du repo
-`procivis-veille-interne`** (accès en écriture indisponible depuis la session du
-2026-07-31 — fichier prêt, remis à Maxime).
+conforme.
+
+**Déploiement terminé le 2026-07-31 (session locale)** : page v2 poussée sur `main`
+de `procivis-veille-interne` (commit `a8d7f84`), GitHub Pages vérifié en ligne
+(coche initialisée depuis le Sheet + payload `@pages` corrects sur ligne de test,
+ligne supprimée ensuite). Au passage, bug latent corrigé dans `run_write` : la plage
+« Pages PDF » était écrite sans forçage texte et serait devenue une date au premier
+vendredi (cf. « Pièges connus »). Le premier cycle réel complet (collecte → page →
+bouton → mail) reste à observer au prochain vendredi de collecte.
