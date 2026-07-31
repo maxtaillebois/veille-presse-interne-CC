@@ -1,5 +1,28 @@
 # Veille Presse Procivis — routine Claude Code
 
+## ⚡ REPRISE — une action en attente (écrit le 2026-07-31, session précédente)
+
+**Tout le flux v2 est codé, testé et mergé sur `main` de CE dépôt. Il ne reste
+qu'UNE chose à faire : déployer la nouvelle page de sélection.**
+
+- Le fichier prêt : **`deploy/index.html`** (ce dépôt). Destination : remplacer
+  **`index.html` sur `main` du repo `maxtaillebois/procivis-veille-interne`**
+  (GitHub Pages). Mode d'emploi troué-normé : `deploy/README.md`.
+- Si la session a accès en écriture au repo `procivis-veille-interne` : copier le
+  fichier, committer sur `main` directement, vérifier que GitHub Pages redéploie
+  (~1 min), puis **supprimer `deploy/` et cette section REPRISE** de CLAUDE.md.
+- Si la session n'y a PAS accès (c'était le blocage de la session du 2026-07-31 :
+  périmètre GitHub de session figé, l'ouverture du domaine github.com ne suffit
+  pas) : guider Maxime — soit le collage manuel (lien direct dans
+  `deploy/README.md`), soit ajouter le repo à l'app GitHub « Claude »
+  (github.com/settings/installations) et rouvrir une session incluant ce repo.
+- Après déploiement, test de bout en bout SANS envoyer : cocher un article sur la
+  page (semaine avec données), vérifier via `envoi --dry-run` que la sélection
+  arrive bien — le circuit complet est décrit plus bas (« Page HTML de
+  sélection », « Pièges connus » → `envoi.yml`).
+- Contexte complet de la journée (3 mails erronés, causes, garde-fous) : section
+  « Journal — incident du 2026-07-31 ». **Ne pas re-diagnostiquer, c'est corrigé.**
+
 Ce dépôt remplace l'automatisation n8n (4 workflows) de la veille presse interne du
 réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui-même
 (plus d'appels API en boucle → le rate limit Anthropic 30K tokens/min disparaît).
