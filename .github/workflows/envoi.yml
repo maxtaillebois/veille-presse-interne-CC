@@ -1,22 +1,25 @@
 name: Envoi veille presse
 
-# Lit systématiquement la colonne « Sélectionné » du Google Sheet — jamais un
-# nom de fichier tapé/transmis à la main. Un même PDF « revue de presse » peut
-# compiler plusieurs coupures (même Nom fichier PDF, Pages PDF différentes) ;
-# seule une lecture ligne par ligne du Sheet lève l'ambiguïté correctement.
-# Historique : cet input texte libre a causé 3 envois erronés à Stéphanie le
-# 2026-07-31 (métadonnées et PDF fusionné faux dès que plusieurs coupures
-# partageaient le même fichier).
+# Deux chemins d'entrée, un seul pivot : le Google Sheet.
+#
+# 1. Bouton de la page HTML → input `selected_files` au format
+#    « fichier.pdf@debut-fin,... » (la plage de pages est OBLIGATOIRE pour toute
+#    coupure d'un PDF « revue de presse » compilé — colonne « Pages PDF »).
+#    Le job commence alors par `select` : validation stricte de CHAQUE entrée
+#    contre le Sheet (la moindre inconnue → échec, rien d'écrit, aucun mail),
+#    puis report de la sélection dans la colonne « Sélectionné » (TRUE/FALSE).
+#    Ensuite `envoi --names` expédie dans l'ordre choisi sur la page.
+# 2. Sélection cochée directement dans le Sheet → input vide → `envoi` lit la
+#    colonne « Sélectionné », dans l'ordre des lignes.
+#
+# Historique : des noms transmis SANS plage de pages ont causé 3 envois erronés
+# à Stéphanie le 2026-07-31. C'est le garde-fou de `select`/`envoi` (sortie en
+# erreur sur non-correspondance) qui rend l'input de nouveau utilisable.
 on:
   workflow_dispatch:
     inputs:
-      # DÉLIBÉRÉMENT IGNORÉ. Conservé uniquement parce que la page de sélection
-      # (repo procivis-veille-interne) le transmet encore : sans cette
-      # déclaration, l'API GitHub rejette l'appel en HTTP 422 « Unexpected
-      # inputs provided ». Ne JAMAIS le rebrancher sur `envoi --names` : la
-      # sélection fait foi côté Sheet. À supprimer une fois la page nettoyée.
       selected_files:
-        description: "IGNORÉ — la sélection est lue dans le Sheet (colonne « Sélectionné »)"
+        description: "Sélection de la page (fichier.pdf@debut-fin,...) — vide = lire la colonne « Sélectionné » du Sheet"
         required: false
         type: string
 
@@ -38,11 +41,22 @@ jobs:
       - name: Install Python dependencies
         run: pip install gspread google-auth requests pypdf cryptography cffi
 
-      - name: Run ENVOI (sélection lue depuis le Sheet)
+      - name: Run SELECT + ENVOI
         env:
           OUTLOOK_TENANT: ${{ secrets.OUTLOOK_TENANT }}
           OUTLOOK_CLIENT_ID: ${{ secrets.OUTLOOK_CLIENT_ID }}
           OUTLOOK_CLIENT_SECRET: ${{ secrets.OUTLOOK_CLIENT_SECRET }}
           OUTLOOK_USER: ${{ secrets.OUTLOOK_USER }}
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-        run: python3 lance_veille_local.py envoi
+          SELECTED_FILES: ${{ inputs.selected_files }}
+        run: |
+          if [ -n "$SELECTED_FILES" ]; then
+            # Sélection venue de la page : report validé dans le Sheet, puis
+            # envoi dans l'ordre choisi sur la page. Si `select` échoue
+            # (entrée sans correspondance), le job s'arrête ici — aucun mail.
+            python3 lance_veille_local.py select --names "$SELECTED_FILES"
+            python3 lance_veille_local.py envoi --names "$SELECTED_FILES"
+          else
+            # Sélection cochée directement dans le Sheet.
+            python3 lance_veille_local.py envoi
+          fi

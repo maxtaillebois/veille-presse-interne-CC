@@ -114,16 +114,16 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
   `envoi` ne peut pas distinguer deux articles du même fichier : il répète le
   même titre dans le mail et duplique le fichier entier dans le PDF fusionné au
   lieu d'en extraire chaque coupure (incident du 2026-07-31).
-- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch` qui
-  exécute `envoi` tout court, lequel lit la colonne « Sélectionné » du Sheet.
-  L'input `selected_files` est **déclaré mais délibérément ignoré** : la page de
-  sélection le transmet encore, et sans la déclaration l'API GitHub rejette
-  l'appel en **HTTP 422 « Unexpected inputs provided »**. **Ne jamais le
-  rebrancher sur `envoi --names`** : c'est ce qui a provoqué 3 envois erronés à
-  Stéphanie le 2026-07-31 (noms de fichiers sans plage de pages → aucune
-  correspondance dans le Sheet, mail avec lignes vides et PDF fusionné faux).
-  À supprimer des deux côtés une fois la page nettoyée (repo
-  `procivis-veille-interne` : retirer `selected_files` du corps du POST).
+- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch`, deux
+  chemins. Input `selected_files` **rempli** (bouton de la page, format
+  `fichier.pdf@debut-fin,...`) → `select` valide CHAQUE entrée contre le Sheet
+  (une inconnue → échec, rien d'écrit, aucun mail), reporte la sélection dans
+  la colonne « Sélectionné », puis `envoi --names` expédie dans l'ordre de la
+  page. Input **vide** → `envoi` lit la colonne « Sélectionné » du Sheet.
+  **La plage `@pages` est obligatoire pour toute coupure d'un PDF compilé** :
+  des noms nus sans plage ont causé 3 envois erronés le 2026-07-31 ; c'est le
+  garde-fou de `select` qui rend l'input de nouveau utilisable en confiance.
+  L'input ne doit JAMAIS être branché sur `envoi --names` sans `select` devant.
 - **Un correctif non mergé ne protège de rien** : le workflow fait un
   `checkout` de `main`. Tant qu'une correction dort dans une branche/PR, le
   bouton continue d'exécuter l'ancien code (constaté le 2026-07-31 : même bug
@@ -145,26 +145,28 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
 | Filtre sujets Outlook | « retombees », « retombée », « PANORAMA DE PRESSE » — < 7 j, avec PJ |
 | n8n | **Hors sujet — plus aucun n8n dans ce processus depuis longtemps.** Tout passe par Claude Code + la GitHub Action. Anciens ID (archive) : W1 `KgSSxM4fCLnvBVTy` · W2 `LgqS9YPx77vPkoI1` · W3 `C7yzQTLVcIfl3aqG` · W4 `al4Sh59yAfsxGRAn`. **Ne pas invoquer n8n comme cause d'un incident** (piste explorée à tort le 2026-07-31). |
 
-## Page HTML de sélection — limite majeure à corriger (autre repo)
+## Page HTML de sélection (autre repo — architecture v2 du 2026-07-31)
 
 `maxtaillebois/procivis-veille-interne/index.html`. `DEFAULT_CC_EMAILS` = Maxime +
-Aurélie : **correct, ne pas le réduire à Aurélie**.
+Aurélie : **correct, ne pas le réduire à Aurélie**. Le bouton POST vers un **Worker
+Cloudflare** (`veille-dispatch.maxime-taillebois.workers.dev`) qui relaie vers l'API
+GitHub `workflow_dispatch` — le token GitHub vit dans le Worker, pas dans la page.
 
-⚠️ **La page ne coche RIEN dans le Sheet.** Constaté le 2026-07-31 : elle affichait
-« 3 articles sélectionnés » alors que la colonne « Sélectionné » était entièrement à
-`FALSE`. Elle lit le Sheet en public (API gviz, **lecture seule** — elle n'a aucune
-credential d'écriture), garde l'état des cases **dans le navigateur**, et transmet au
-POST des **noms de fichiers nus**. Or un nom de fichier ne distingue pas deux coupures
-d'un même PDF compilé → c'est la cause racine des 3 envois ratés (voir Journal).
+**Architecture v2 (remplace le constat d'origine « la page ne coche rien »)** : la
+page n'écrit toujours pas directement dans le Sheet (gviz = lecture seule, aucune
+credential côté client — c'est voulu). C'est le **workflow** qui écrit : au clic sur
+« Envoyer », la page transmet `fichier.pdf@debut-fin,...` (colonne « Pages PDF » lue
+via gviz) ; le job exécute `select` (validation stricte + report TRUE/FALSE dans la
+colonne « Sélectionné ») puis `envoi --names`. Les coches de la page s'initialisent
+depuis la colonne « Sélectionné » au chargement. Le Sheet reste le pivot ; Maxime n'a
+plus à le toucher.
 
-**Conséquence pratique tant que ce n'est pas corrigé : cocher directement dans le
-Google Sheet** (colonne J, cases à cocher ajoutées le 2026-07-31), la page ne servant
-qu'à lire confortablement. Le bouton peut toujours servir à déclencher l'ENVOI : sa
-charge utile est ignorée, la sélection est relue depuis le Sheet.
-
-Deux corrections possibles côté page (v2) : soit elle écrit `TRUE` dans la colonne
-« Sélectionné » (nécessite une credential d'écriture, donc un proxy/token — réserves
-CORS à lever), soit elle transmet `fichier.pdf@debut-fin` au lieu du nom nu.
+Version de `index.html` requise pour ce flux : celle produite le 2026-07-31 (envoie
+`@pages` + initialise les coches depuis le Sheet). **Tant qu'elle n'est pas déployée
+sur `main` du repo de la page**, l'ancienne page envoie des noms nus : `select` les
+rejettera (échec propre, aucun mail) dès qu'une coupure de PDF compilé est en jeu —
+dans ce cas, cocher directement dans le Sheet et cliquer « Envoyer » sans sélection
+page, ou déclencher le workflow à la main.
 
 ## Journal — incident du 2026-07-31 (à lire avant tout dépannage ENVOI)
 
@@ -215,5 +217,10 @@ correct (10h49). Trois causes distinctes empilées, corrigées une par une.
 ### État au 2026-07-31 en fin de journée
 
 Semaine S31-2026 envoyée et purgée (Sheet vide, en-tête conservé). Correctifs mergés
-sur `main` (PR #1 à #4). Reste ouvert : **corriger la page** (voir section ci-dessus)
-et, une fois fait, retirer `selected_files` des deux côtés.
+sur `main` (PR #1 à #4), puis **architecture v2 du flux page → Sheet** (mode `select`,
+workflow à deux chemins, nouvelle page — voir section « Page HTML de sélection »).
+Testé de bout en bout sur données réelles : select coche/décoche juste, rejette les
+noms nus sans rien écrire, `envoi --names` respecte l'ordre de la page, PDF découpé
+conforme. Reste ouvert : **déployer le nouveau `index.html` sur `main` du repo
+`procivis-veille-interne`** (accès en écriture indisponible depuis la session du
+2026-07-31 — fichier prêt, remis à Maxime).
