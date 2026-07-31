@@ -25,14 +25,30 @@ réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui
 1. Dépendances : cf. `SETUP.md` (script de setup d'environnement).
 2. `python3 lance_veille_local.py extract --days 7`
    → `pdfs_extracted.json` + PDF dans `./pdfs/`.
-3. Lire `pdfs_extracted.json`. Pour chaque article, produire un objet JSON :
+3. Lire `pdfs_extracted.json`. **Un PDF n'est pas forcément un seul article** : les
+   « revues de presse » (mails « RETOMBEES », « PANORAMA DE PRESSE ») compilent
+   souvent plusieurs coupures dans un même PDF (une page « Sommaire » listant
+   plusieurs titres + numéros de page en tête de fichier, ou plusieurs blocs
+   `PUBLICATION:` / `COUNTRY:France...PAGE(S):` qui se succèdent). Dans ce cas,
+   traiter **chaque coupure comme un article séparé**, pas le PDF dans son
+   ensemble. Pour chaque article, produire un objet JSON :
    - `media`, `titre`, `date_publication` (AAAA-MM-JJ si possible)
    - `resume` : 3 à 5 phrases, factuel, **sans glose**
    - `mots_cles_trouves` : sous-ensemble réel de la liste des 4 mots-clés
    - `contexte_citations` : liste de `{mot_cle, phrase}`
    - `file_name` : recopier le `file_name` de l'entrée correspondante
-   Écarter tout PDF ne contenant **aucun** des 4 mots-clés. Écrire la liste dans
-   `analyses.json`.
+   - `pages` : **si et seulement si** ce PDF compile plusieurs coupures, la plage de
+     pages de CETTE coupure au sein du fichier (1-indexée, incluse — ex. `"4-5"`
+     ou `"14"` pour une page seule). Déterminer les bornes en repérant, dans le
+     texte extrait, les sauts de page (`\f` produits par `pdftotext -layout` —
+     un saut = une page physique du PDF) et en associant chaque bloc `PUBLICATION:`
+     / `COUNTRY:France...` à sa page de départ (recouper avec les numéros de la
+     page « Sommaire » si présente : ils ont souvent un décalage constant avec
+     l'index physique réel — **vérifier en comptant les `\f`, ne pas recopier le
+     numéro du Sommaire tel quel**). Laisser `pages` absent/vide pour un PDF à
+     article unique.
+   Écarter tout PDF (ou toute coupure) ne contenant **aucun** des 4 mots-clés.
+   Écrire la liste dans `analyses.json`.
 4. `python3 lance_veille_local.py write --analyses analyses.json`
 5. Mail de notification à `maxime.taillebois@procivis.fr`, objet « La veille presse
    est prête ! », corps court : nombre d'articles + lien
@@ -47,10 +63,19 @@ Ne **jamais** déclencher l'envoi final à Stéphanie depuis la COLLECTE.
 Entrée : articles dont la colonne « Sélectionné » du Sheet vaut `true` (ou récap
 fourni par Maxime).
 
-1. Identifier les articles sélectionnés + leur `Nom fichier PDF` (col. 8 du Sheet).
+1. Identifier les articles sélectionnés + leur `Nom fichier PDF` (col. 8) et leur
+   `Pages PDF` (col. 9, vide si le PDF ne contient qu'un seul article).
 2. `python3 lance_veille_local.py fetch --names "<fichiers, séparés par des virgules>"`
-   → re-télécharge les PDF dans `./pdfs/` (ne pas supposer qu'ils y sont déjà).
-3. Fusionner les PDF dans l'ordre du Sheet en un seul (`pypdf`).
+   → re-télécharge les PDF dans `./pdfs/` (ne pas supposer qu'ils y sont déjà). Le
+   mode `fetch` télécharge par nom de fichier seulement (suffixe `@pages` toléré et
+   ignoré) — dédoublonne naturellement si plusieurs coupures viennent du même PDF.
+3. `envoi` fusionne automatiquement dans l'ordre voulu et **découpe chaque
+   article sur ses seules pages** (`--names` accepte `fichier.pdf@debut-fin`,
+   ex. `clips-....pdf@2-3,clips-....pdf@4-5`) — indispensable dès qu'au moins deux
+   coupures sélectionnées partagent le même `Nom fichier PDF` (revue de presse
+   compilée), sinon le PDF envoyé répète le fichier entier au lieu de chaque
+   coupure et le mail affiche le même titre plusieurs fois (incident du
+   2026-07-31, corrigé).
 4. Rédiger le mail (voir « Format du mail »), **présenter le brouillon à Maxime
    pour validation**, puis envoyer via Microsoft Graph :
    - TO : `stephanie@papiersdesoi.fr`
@@ -84,13 +109,23 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
   collecte, élargir `fetch --days`.
 - **Partage du Sheet** : s'il repasse en « Restreint », la page HTML affiche
   « 0 article ». Garder « lien → Lecteur ».
+- **PDF « revue de presse » compilant plusieurs coupures** : très fréquent (voir
+  étape 3 de la COLLECTE). Toujours renseigner `pages` par coupure — sans ça,
+  `envoi` ne peut pas distinguer deux articles du même fichier : il répète le
+  même titre dans le mail et duplique le fichier entier dans le PDF fusionné au
+  lieu d'en extraire chaque coupure (incident du 2026-07-31).
+- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch` qui
+  exécute `envoi --names`. Elle ne se déclenche jamais toute seule (pas de
+  planification), mais si on la lance à la main avec un `selected_files` où
+  plusieurs entrées partagent le même nom de fichier, il faut leur adjoindre le
+  suffixe `@debut-fin` (voir ENVOI, étape 3) pour distinguer les coupures.
 
 ## Référentiel (aucun secret ici — voir variables d'env, SETUP.md)
 
 | Élément | Valeur |
 |---|---|
 | Google Sheet pivot | `1t5e1hJ482g-wl6gHeoR0J3yTR-pVOgc9z0rHGREGMN0` — onglet « Veille Procivis » |
-| Colonnes (10) | Semaine, Média, Titre, Date publication, Résumé, Mots-clés trouvés, Contexte citations, Nom fichier PDF, *(col. 9 vide — ex-Drive, abandonnée)*, Sélectionné |
+| Colonnes (10) | Semaine, Média, Titre, Date publication, Résumé, Mots-clés trouvés, Contexte citations, Nom fichier PDF, **Pages PDF** *(ex-« ID fichier Drive », abandonnée puis réutilisée — plage 1-indexée « 4-5 », vide si PDF à article unique)*, Sélectionné |
 | Page de sélection | `https://maxtaillebois.github.io/procivis-veille-interne/` (repo `maxtaillebois/procivis-veille-interne`) |
 | Boîte Outlook (lecture + envoi) | `maxime.taillebois@procivis.fr` |
 | Destinataire mail final | TO `stephanie@papiersdesoi.fr` — **CC `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr`** |
