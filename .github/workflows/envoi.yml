@@ -1,12 +1,14 @@
 name: Envoi veille presse
 
+# Lit systématiquement la colonne « Sélectionné » du Google Sheet — jamais un
+# nom de fichier tapé/transmis à la main. Un même PDF « revue de presse » peut
+# compiler plusieurs coupures (même Nom fichier PDF, Pages PDF différentes) ;
+# seule une lecture ligne par ligne du Sheet lève l'ambiguïté correctement.
+# Historique : un ancien input texte libre « selected_files » a causé 3 envois
+# erronés à Stéphanie le 2026-07-31 (métadonnées et PDF fusionné faux dès que
+# plusieurs coupures partageaient le même fichier) — supprimé pour de bon.
 on:
-  workflow_dispatch:
-    inputs:
-      selected_files:
-        description: "Noms des PDF sélectionnés, séparés par des virgules (dans l'ordre voulu)"
-        required: true
-        type: string
+  workflow_dispatch: {}
 
 jobs:
   envoi:
@@ -24,13 +26,13 @@ jobs:
           sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-fra
 
       - name: Install Python dependencies
-        run: pip install gspread google-auth requests pypdf cryptography
+        run: pip install gspread google-auth requests pypdf cryptography cffi
 
-      - name: Run ENVOI
+      - name: Run ENVOI (sélection lue depuis le Sheet)
         env:
           OUTLOOK_TENANT: ${{ secrets.OUTLOOK_TENANT }}
           OUTLOOK_CLIENT_ID: ${{ secrets.OUTLOOK_CLIENT_ID }}
           OUTLOOK_CLIENT_SECRET: ${{ secrets.OUTLOOK_CLIENT_SECRET }}
           OUTLOOK_USER: ${{ secrets.OUTLOOK_USER }}
           GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
-        run: python3 lance_veille_local.py envoi --names "${{ inputs.selected_files }}"
+        run: python3 lance_veille_local.py envoi

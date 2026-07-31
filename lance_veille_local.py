@@ -466,7 +466,28 @@ def run_envoi(args):
     log(f"{len(wanted)} article(s) : " +
         ", ".join(f"{f}@{p}" if p else f for f, p in wanted))
 
-    articles_meta = [meta.get(w, {"media": "", "titre": w[0], "date": ""}) for w in wanted]
+    # Refus d'envoyer si une sélection ne correspond à aucune ligne du Sheet :
+    # sans métadonnées, le mail partirait avec des lignes vides (« | fichier.pdf | »)
+    # et un PDF fusionné faux. Mieux vaut échouer bruyamment que spammer Stéphanie.
+    inconnus = [w for w in wanted if w not in meta]
+    if inconnus:
+        log("ERREUR : ces sélections ne correspondent à aucune ligne du Sheet :", "red")
+        for f, p in inconnus:
+            log(f"    - {f}" + (f" (pages {p})" if p else " (sans plage de pages)"), "red")
+        log("    → la sélection doit venir de la colonne « Sélectionné » du Sheet,", "yellow")
+        log("      pas d'une liste de noms saisie à la main.", "yellow")
+        sys.exit(1)
+
+    articles_meta = [meta[w] for w in wanted]
+
+    log("Articles retenus :")
+    for (f, p), a in zip(wanted, articles_meta):
+        log(f"    • {a['media']} | {a['titre'][:60]} | {a['date']}"
+            + (f"  [{f} p.{p}]" if p else f"  [{f}]"), "gray")
+
+    if args.dry_run:
+        log("DRY RUN — aucun PDF fusionné, aucun mail envoyé, aucune purge.", "yellow")
+        return
 
     # 3. Télécharger chaque PDF source depuis Outlook, une seule fois par nom
     #    (plusieurs articles peuvent partager le même fichier compilé).
@@ -596,9 +617,12 @@ def main():
     pp.add_argument("--dry-run", action="store_true")
 
     penv = sub.add_parser("envoi", help="fetch + merge PDF + mail Stéphanie + purge")
-    penv.add_argument("--names", help="noms PDF séparés par des virgules, dans l'ordre voulu ; "
-                     "pour une coupure au sein d'un PDF « revue de presse » compilant plusieurs "
-                     "articles, suffixer @debut-fin (pages 1-indexées, ex: clips.pdf@2-3)")
+    penv.add_argument("--names", help="RÉSERVÉ À LA MISE AU POINT — par défaut la sélection est "
+                     "lue dans la colonne « Sélectionné » du Sheet, ce qui est le mode sûr. "
+                     "Format : noms PDF séparés par des virgules, dans l'ordre voulu, chaque "
+                     "coupure d'un PDF compilé suffixée @debut-fin (ex: clips.pdf@2-3)")
+    penv.add_argument("--dry-run", action="store_true",
+                     help="affiche les articles retenus puis s'arrête : ni PDF, ni mail, ni purge")
     penv.add_argument("--days", type=int, default=10)
     penv.add_argument("--pdf-dir", default="pdfs")
 
