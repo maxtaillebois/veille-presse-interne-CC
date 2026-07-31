@@ -114,11 +114,20 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
   `envoi` ne peut pas distinguer deux articles du même fichier : il répète le
   même titre dans le mail et duplique le fichier entier dans le PDF fusionné au
   lieu d'en extraire chaque coupure (incident du 2026-07-31).
-- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch` qui
-  exécute `envoi --names`. Elle ne se déclenche jamais toute seule (pas de
-  planification), mais si on la lance à la main avec un `selected_files` où
-  plusieurs entrées partagent le même nom de fichier, il faut leur adjoindre le
-  suffixe `@debut-fin` (voir ENVOI, étape 3) pour distinguer les coupures.
+- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch` sans
+  aucun input — elle exécute `envoi` tout court, qui lit la colonne
+  « Sélectionné » du Sheet. **Ne jamais réintroduire d'input texte libre du type
+  `selected_files`** : c'est ce qui a provoqué 3 envois erronés à Stéphanie le
+  2026-07-31 (noms de fichiers sans plage de pages → aucune correspondance dans
+  le Sheet, mail avec lignes vides et PDF fusionné faux).
+- **Un correctif non mergé ne protège de rien** : le workflow fait un
+  `checkout` de `main`. Tant qu'une correction dort dans une branche/PR, le
+  bouton continue d'exécuter l'ancien code (constaté le 2026-07-31 : même bug
+  reproduit à l'identique après un « correctif » resté en PR draft).
+- **Garde-fou `envoi`** : si une sélection ne correspond à aucune ligne du
+  Sheet, le script sort en erreur au lieu d'envoyer un mail incomplet.
+  `envoi --dry-run` affiche les articles retenus sans rien envoyer ni purger —
+  à utiliser pour vérifier avant tout envoi réel.
 
 ## Référentiel (aucun secret ici — voir variables d'env, SETUP.md)
 
