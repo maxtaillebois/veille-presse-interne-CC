@@ -359,6 +359,74 @@ def run_fetch(args):
     log(f"→ {len(found)} PDF récupérés dans {pdf_dir}/", "green")
 
 
+# ─── Mode SELECT ────────────────────────────────────────────────────────────
+
+def run_select(args):
+    """Reporte dans la colonne « Sélectionné » du Sheet une sélection venue de
+    la page HTML (via le workflow ENVOI) : TRUE sur les articles listés, FALSE
+    partout ailleurs. Le Sheet reste ainsi la source de vérité que `envoi` lit.
+
+    Entrée : --names "fichier.pdf@debut-fin,..." — même format que `envoi
+    --names`. Validation stricte AVANT toute écriture : si une seule entrée ne
+    correspond à aucune ligne du Sheet, rien n'est modifié et on sort en
+    erreur (le workflow s'arrête, aucun mail ne part)."""
+    log("=== Mode SELECT ===", "bold")
+    wanted = []
+    for tok in (args.names or "").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        fname, pages = split_name_pages(tok)
+        wanted.append((safe_pdf_name(fname), pages))
+    if not wanted:
+        log("ERREUR : aucune sélection fournie (--names).", "red")
+        sys.exit(1)
+
+    ws = open_sheet()
+    rows = ws.get_all_values()
+    if len(rows) < 2:
+        log("ERREUR : Sheet vide — rien à sélectionner.", "red")
+        sys.exit(1)
+    hdr = [h.strip().lower() for h in rows[0]]
+    def _ci(*cands):
+        for c in cands:
+            try: return hdr.index(c)
+            except ValueError: pass
+        return -1
+    i_file  = _ci("nom fichier pdf")
+    i_pages = _ci("pages pdf", "id fichier drive")
+    i_sel   = _ci("sélectionné")
+    if i_file < 0 or i_sel < 0:
+        log("ERREUR : colonnes 'Nom fichier PDF' ou 'Sélectionné' introuvables.", "red")
+        sys.exit(1)
+
+    # Index (fichier, pages) → numéro de ligne Sheet (1-indexé)
+    row_of = {}
+    for n, r in enumerate(rows[1:], start=2):
+        if i_file < len(r) and r[i_file].strip():
+            pages = r[i_pages].strip() if 0 <= i_pages < len(r) else ""
+            row_of[(safe_pdf_name(r[i_file]), pages)] = n
+
+    inconnus = [w for w in wanted if w not in row_of]
+    if inconnus:
+        log("ERREUR : sélection sans correspondance dans le Sheet — rien n'est écrit :", "red")
+        for f, p in inconnus:
+            log(f"    - {f}" + (f" (pages {p})" if p else " (sans plage de pages)"), "red")
+        log("    → la page doit transmettre « fichier.pdf@debut-fin » pour chaque", "yellow")
+        log("      coupure d'un PDF compilé (colonne « Pages PDF » du Sheet).", "yellow")
+        sys.exit(1)
+
+    keep = {row_of[w] for w in wanted}
+    col = [[n in keep] for n in range(2, len(rows) + 1)]   # booléens → cases à cocher
+    a1_col = gspread.utils.rowcol_to_a1(1, i_sel + 1).rstrip("1")
+    ws.update(values=col, range_name=f"{a1_col}2:{a1_col}{len(rows)}",
+              value_input_option="USER_ENTERED")
+    log(f"→ {len(keep)} article(s) coché(s), {len(col) - len(keep)} décoché(s) dans le Sheet.",
+        "green")
+    for f, p in wanted:
+        log(f"    ✓ {f}" + (f" (p.{p})" if p else ""), "gray")
+
+
 # ─── Mode PURGE ─────────────────────────────────────────────────────────────
 
 def run_purge(args):
@@ -618,6 +686,11 @@ def main():
     pf.add_argument("--days", type=int, default=10)
     pf.add_argument("--pdf-dir", default="pdfs")
 
+    ps = sub.add_parser("select", help="reporte une sélection (page HTML) dans la colonne "
+                        "« Sélectionné » du Sheet — TRUE sur les articles listés, FALSE ailleurs")
+    ps.add_argument("--names", required=True,
+                    help="fichier.pdf@debut-fin,... (même format que envoi --names)")
+
     pp = sub.add_parser("purge", help="vide le Sheet + supprime les fichiers de travail")
     pp.add_argument("--pdf-dir", default="pdfs")
     pp.add_argument("--sheet-only", action="store_true")
@@ -625,18 +698,19 @@ def main():
     pp.add_argument("--dry-run", action="store_true")
 
     penv = sub.add_parser("envoi", help="fetch + merge PDF + mail Stéphanie + purge")
-    penv.add_argument("--names", help="RÉSERVÉ À LA MISE AU POINT — par défaut la sélection est "
-                     "lue dans la colonne « Sélectionné » du Sheet, ce qui est le mode sûr. "
-                     "Format : noms PDF séparés par des virgules, dans l'ordre voulu, chaque "
-                     "coupure d'un PDF compilé suffixée @debut-fin (ex: clips.pdf@2-3)")
+    penv.add_argument("--names", help="sélection explicite, dans l'ordre voulu — utilisée par le "
+                     "workflow APRÈS `select` (qui l'a validée et reportée dans le Sheet). "
+                     "Sans --names : lecture de la colonne « Sélectionné » du Sheet. "
+                     "Format : noms PDF séparés par des virgules, chaque coupure d'un PDF "
+                     "compilé suffixée @debut-fin (ex: clips.pdf@2-3)")
     penv.add_argument("--dry-run", action="store_true",
                      help="affiche les articles retenus puis s'arrête : ni PDF, ni mail, ni purge")
     penv.add_argument("--days", type=int, default=10)
     penv.add_argument("--pdf-dir", default="pdfs")
 
     args = p.parse_args()
-    {"extract": run_extract, "write": run_write,
-     "fetch": run_fetch, "purge": run_purge, "envoi": run_envoi}[args.mode](args)
+    {"extract": run_extract, "write": run_write, "fetch": run_fetch,
+     "select": run_select, "purge": run_purge, "envoi": run_envoi}[args.mode](args)
 
 
 if __name__ == "__main__":
