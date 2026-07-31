@@ -30,7 +30,10 @@ apt-get update
 apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-fra
 # Le script de setup tourne sans le dépôt cloné → on installe les paquets
 # par leur nom, pas via -r requirements.txt (le fichier n'est pas là).
-pip install gspread google-auth requests pypdf
+# cffi : requis par cryptography (dépendance de google-auth) — sans lui,
+# l'import de gspread plante avec « ModuleNotFoundError: _cffi_backend »
+# (repéré en routine le 2026-07-31, corrigé à la main pour ce run).
+pip install gspread google-auth requests pypdf cffi
 ```
 
 > `requirements.txt` reste la référence (versions, install locale). Le script de
