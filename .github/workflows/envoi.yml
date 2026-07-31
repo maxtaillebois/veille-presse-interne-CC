@@ -4,11 +4,21 @@ name: Envoi veille presse
 # nom de fichier tapé/transmis à la main. Un même PDF « revue de presse » peut
 # compiler plusieurs coupures (même Nom fichier PDF, Pages PDF différentes) ;
 # seule une lecture ligne par ligne du Sheet lève l'ambiguïté correctement.
-# Historique : un ancien input texte libre « selected_files » a causé 3 envois
-# erronés à Stéphanie le 2026-07-31 (métadonnées et PDF fusionné faux dès que
-# plusieurs coupures partageaient le même fichier) — supprimé pour de bon.
+# Historique : cet input texte libre a causé 3 envois erronés à Stéphanie le
+# 2026-07-31 (métadonnées et PDF fusionné faux dès que plusieurs coupures
+# partageaient le même fichier).
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      # DÉLIBÉRÉMENT IGNORÉ. Conservé uniquement parce que la page de sélection
+      # (repo procivis-veille-interne) le transmet encore : sans cette
+      # déclaration, l'API GitHub rejette l'appel en HTTP 422 « Unexpected
+      # inputs provided ». Ne JAMAIS le rebrancher sur `envoi --names` : la
+      # sélection fait foi côté Sheet. À supprimer une fois la page nettoyée.
+      selected_files:
+        description: "IGNORÉ — la sélection est lue dans le Sheet (colonne « Sélectionné »)"
+        required: false
+        type: string
 
 jobs:
   envoi:
