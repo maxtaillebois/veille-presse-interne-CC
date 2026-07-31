@@ -114,12 +114,16 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
   `envoi` ne peut pas distinguer deux articles du même fichier : il répète le
   même titre dans le mail et duplique le fichier entier dans le PDF fusionné au
   lieu d'en extraire chaque coupure (incident du 2026-07-31).
-- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch` sans
-  aucun input — elle exécute `envoi` tout court, qui lit la colonne
-  « Sélectionné » du Sheet. **Ne jamais réintroduire d'input texte libre du type
-  `selected_files`** : c'est ce qui a provoqué 3 envois erronés à Stéphanie le
-  2026-07-31 (noms de fichiers sans plage de pages → aucune correspondance dans
-  le Sheet, mail avec lignes vides et PDF fusionné faux).
+- **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch` qui
+  exécute `envoi` tout court, lequel lit la colonne « Sélectionné » du Sheet.
+  L'input `selected_files` est **déclaré mais délibérément ignoré** : la page de
+  sélection le transmet encore, et sans la déclaration l'API GitHub rejette
+  l'appel en **HTTP 422 « Unexpected inputs provided »**. **Ne jamais le
+  rebrancher sur `envoi --names`** : c'est ce qui a provoqué 3 envois erronés à
+  Stéphanie le 2026-07-31 (noms de fichiers sans plage de pages → aucune
+  correspondance dans le Sheet, mail avec lignes vides et PDF fusionné faux).
+  À supprimer des deux côtés une fois la page nettoyée (repo
+  `procivis-veille-interne` : retirer `selected_files` du corps du POST).
 - **Un correctif non mergé ne protège de rien** : le workflow fait un
   `checkout` de `main`. Tant qu'une correction dort dans une branche/PR, le
   bouton continue d'exécuter l'ancien code (constaté le 2026-07-31 : même bug
