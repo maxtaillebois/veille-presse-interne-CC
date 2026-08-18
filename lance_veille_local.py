@@ -51,7 +51,11 @@ SPREADSHEET_ID = os.environ.get(
 )
 SHEET_NAME = os.environ.get("SHEET_NAME", "Veille Procivis")
 
-SUBJECT_PATTERNS = ["retombees", "retombée", "PANORAMA DE PRESSE"]
+# « PANORAMA DE PRESSE » retiré le 2026-08-18 : c'est le mail Cision/LuQi de la
+# veille USH (autre chaîne, skill veille-ush-presse), pas une retombée Procivis.
+# Pas de filtre sur l'expéditeur, volontairement : l'agence qui envoie les
+# retombées peut changer d'une semaine à l'autre.
+SUBJECT_PATTERNS = ["retombees", "retombée"]
 
 
 # ─── Logs ───────────────────────────────────────────────────────────────────

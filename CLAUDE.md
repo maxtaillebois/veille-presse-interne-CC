@@ -26,7 +26,7 @@ réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui
 2. `python3 lance_veille_local.py extract --days 7`
    → `pdfs_extracted.json` + PDF dans `./pdfs/`.
 3. Lire `pdfs_extracted.json`. **Un PDF n'est pas forcément un seul article** : les
-   « revues de presse » (mails « RETOMBEES », « PANORAMA DE PRESSE ») compilent
+   « revues de presse » (mails « RETOMBEES ») compilent
    souvent plusieurs coupures dans un même PDF (une page « Sommaire » listant
    plusieurs titres + numéros de page en tête de fichier, ou plusieurs blocs
    `PUBLICATION:` / `COUNTRY:France...PAGE(S):` qui se succèdent). Dans ce cas,
@@ -99,6 +99,19 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
 
 ## Pièges connus
 
+- **Périmètre de la recherche Outlook.** Motifs : « retombees », « retombée »
+  uniquement. **« PANORAMA DE PRESSE » a été retiré le 2026-08-18** : c'est le mail
+  Cision/LuQi de la **veille USH** (skill `veille-ush-presse`, chaîne totalement
+  distincte : Gmail + API LuQi), qui arrive lui aussi dans la boîte Outlook. Il
+  n'avait jamais rien apporté ici, mais un panorama USH citant Procivis ou Yannick
+  Borde serait entré dans la veille interne. Ne pas le remettre.
+- **Ne pas filtrer sur l'expéditeur.** L'agence qui envoie les retombées change
+  (historiquement `sophie@sogocom.fr`, un autre expéditeur est attendu). Le `from`
+  est enregistré dans `pdfs_extracted.json` à titre informatif, jamais utilisé comme
+  critère — c'est volontaire. Le vrai filtre de pertinence reste les 4 mots-clés à
+  l'analyse. Corollaire : `$search` porte sur le sujet, le corps ET l'expéditeur,
+  donc un mail dont seul le corps dit « retombées » entre dans le périmètre ; c'est
+  assumé, la collecte est volontairement large en entrée et stricte en sortie.
 - **Rate limit Anthropic** : disparaît (Claude lit les PDF lui-même). Ne pas
   réintroduire d'appels API en boucle.
 - **PDF scannés** : OCR `tesseract` (pack `fra`) ; si indisponible, lecture native
@@ -150,7 +163,7 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
 | Page de sélection | `https://maxtaillebois.github.io/procivis-veille-interne/` (repo `maxtaillebois/procivis-veille-interne`) |
 | Boîte Outlook (lecture + envoi) | `maxime.taillebois@procivis.fr` |
 | Destinataire mail final | TO `stephanie@papiersdesoi.fr` — **CC `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr`** |
-| Filtre sujets Outlook | « retombees », « retombée », « PANORAMA DE PRESSE » — < 7 j, avec PJ |
+| Recherche Outlook | `$search` plein texte (sujet + corps + expéditeur) sur « retombees », « retombée » — < 7 j, avec PJ. **Aucun filtre sur l'expéditeur** (voir Pièges connus) |
 | n8n | **Hors sujet — plus aucun n8n dans ce processus depuis longtemps.** Tout passe par Claude Code + la GitHub Action. Anciens ID (archive) : W1 `KgSSxM4fCLnvBVTy` · W2 `LgqS9YPx77vPkoI1` · W3 `C7yzQTLVcIfl3aqG` · W4 `al4Sh59yAfsxGRAn`. **Ne pas invoquer n8n comme cause d'un incident** (piste explorée à tort le 2026-07-31). |
 
 ## Page HTML de sélection (autre repo — architecture v2 du 2026-07-31)
