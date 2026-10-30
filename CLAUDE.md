@@ -15,7 +15,8 @@ réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui
 ## Périmètre (ne pas changer)
 
 - Mots-clés surveillés : **Procivis**, **Immo de France**, **Maisons d'en France**, **Yannick Borde**.
-- Cycle : collecte vendredi matin → sélection vendredi (manuelle, Maxime) → envoi → purge.
+- Cycle : purge vendredi 5h (semaine passée) → collecte vendredi matin → sélection(s)
+  et envoi(s) dans la semaine, autant de fois que nécessaire.
 - Environnement de routine **éphémère** : rien ne survit entre deux runs hors git.
   Ce qui doit traverser COLLECTE → ENVOI est dans le **Google Sheet** ; les **PDF**
   sont re-téléchargés depuis Outlook à l'ENVOI (`fetch`).
@@ -86,8 +87,9 @@ fourni par Maxime).
    - TO : `stephanie@papiersdesoi.fr`
    - **CC : `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr`**
    - PJ : le PDF fusionné
-5. Après envoi réussi **uniquement** : `python3 lance_veille_local.py purge`
-   (vide les lignes du Sheet — en-tête conservé — et supprime les fichiers de travail).
+5. **Pas de purge du Sheet à l'envoi** (depuis le 2026-10-30) : Stéphanie peut faire
+   plusieurs revues de presse dans la semaine à partir des mêmes articles. `envoi` ne
+   nettoie que ses fichiers de travail locaux.
 6. Confirmer à Maxime (récap des articles envoyés).
 
 ### Format du mail (préférences validées — ne pas redemander)
@@ -99,8 +101,16 @@ fourni par Maxime).
 
 ## Purge
 
-Intégrée à l'ENVOI (étape 5), une fois le mail parti. Filet de sécurité optionnel :
-petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoyée.
+`.github/workflows/purge.yml`, le **vendredi à 5h (heure de Paris)**, avant la
+collecte de 8h07 : `purge --sheet-only --older-weeks` supprime les lignes dont la
+colonne « Semaine » n'est pas la semaine ISO en cours. Les lignes de la semaine en
+cours ne sont jamais touchées : relancer le job (bouton « Run workflow ») est sans
+risque. Deux cron UTC (03:00 et 04:00) couvrent l'heure d'été et l'heure d'hiver ;
+le passage en trop ne trouve rien à supprimer.
+
+Historique : jusqu'au 2026-10-30, l'ENVOI purgeait le Sheet après chaque mail. Le
+2026-10-30, deux envois successifs (7 puis 3 articles) ont chacun vidé le Sheet et
+empêché d'autres sélections : d'où le déplacement de la purge.
 
 ## Pièges connus
 
@@ -140,6 +150,8 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
   colonne à la main dans le Sheet, taper l'apostrophe aussi (`'2-3`). Ne pas
   passer l'append en `RAW` : la colonne J (cases à cocher BOOLEAN) a besoin de
   `USER_ENTERED` pour transformer « false » en vrai booléen.
+- **Un clic « Envoyer » = un mail à Stéphanie**, à chaque fois : le Sheet n'est plus
+  vidé, donc rien n'empêche un second envoi identique.
 - **`.github/workflows/envoi.yml`** : GitHub Action `workflow_dispatch`, deux
   chemins. Input `selected_files` **rempli** (bouton de la page, format
   `fichier.pdf@debut-fin,...`) → `select` valide CHAQUE entrée contre le Sheet
@@ -178,6 +190,16 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
 Aurélie : **correct, ne pas le réduire à Aurélie**. Le bouton POST vers un **Worker
 Cloudflare** (`veille-dispatch.maxime-taillebois.workers.dev`) qui relaie vers l'API
 GitHub `workflow_dispatch` — le token GitHub vit dans le Worker, pas dans la page.
+
+**Aperçu PDF (2026-10-30)** : chaque article a un bouton « Aperçu de l'article ». La
+page appelle `GET https://veille-dispatch.maxime-taillebois.workers.dev/pdf?name=<Nom fichier PDF>&pages=<Pages PDF>`.
+Le Worker vérifie que le couple (fichier, pages) est dans le Sheet (lecture gviz),
+récupère la pièce jointe dans Outlook (Graph, mêmes motifs « retombees » /
+« retombée », 21 jours), découpe les pages avec pdf-lib et met le résultat en cache
+1 h. Secrets du Worker : `GITHUB_TOKEN`, `OUTLOOK_TENANT`, `OUTLOOK_CLIENT_ID`,
+`OUTLOOK_CLIENT_SECRET`, `OUTLOOK_USER` (à mettre à jour aussi si le secret Outlook
+est régénéré). Source : `worker/` de ce dépôt, déploiement `cd worker && npm install
+&& npx wrangler deploy` (compte Cloudflare maxime.taillebois@gmail.com).
 
 **Architecture v2 (remplace le constat d'origine « la page ne coche rien »)** : la
 page n'écrit toujours pas directement dans le Sheet (gviz = lecture seule, aucune

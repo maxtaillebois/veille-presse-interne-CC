@@ -1,0 +1,32 @@
+name: Purge veille presse
+
+# Purge hebdomadaire du Google Sheet : le vendredi à 5h (heure de Paris), avant
+# la collecte du matin. L'ENVOI ne purge plus rien, pour que plusieurs revues de
+# presse puissent partir dans la même semaine.
+#
+# `purge --older-weeks` ne supprime que les lignes dont la colonne « Semaine »
+# n'est pas la semaine en cours : relancer le job est sans risque. Les cron
+# GitHub sont en UTC, d'où deux horaires (03:00 UTC = 5h en été, 04:00 UTC = 5h
+# en hiver) ; le passage « en trop » ne trouve plus rien à supprimer.
+on:
+  schedule:
+    - cron: "0 3 * * 5"
+    - cron: "0 4 * * 5"
+  workflow_dispatch:
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    environment: Veille presse interne
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install gspread google-auth requests pypdf cryptography cffi
+
+      - name: Purge des semaines passées
+        env:
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+        run: python3 lance_veille_local.py purge --sheet-only --older-weeks
