@@ -12,6 +12,7 @@ Modes :
   write    analyses.json → une ligne par article dans le Google Sheet
   fetch    re-télécharge des PDF par nom depuis Outlook → ./pdfs/   (pour l'ENVOI)
   purge    vide les lignes du Sheet (en-tête conservé) + supprime les fichiers de travail
+           (--older-weeks : seulement les semaines passées — purge du vendredi 5h)
 
 Secrets : tout passe par variables d'environnement (voir SETUP.md). Aucun secret
 n'est codé en dur ni commité.
@@ -465,6 +466,9 @@ def run_purge(args):
 
     ws = open_sheet()
     values = ws.get_all_values()
+    if args.older_weeks:
+        purge_older_weeks(ws, values, args.dry_run)
+        return
     n_data = max(0, len(values) - 1)
     if args.dry_run:
         log(f"  (dry-run) viderait {n_data} ligne(s) du Sheet (en-tête conservé)",
@@ -475,10 +479,34 @@ def run_purge(args):
     log(f"→ {n_data} ligne(s) supprimée(s) du Sheet (en-tête conservé)", "green")
 
 
+def purge_older_weeks(ws, values, dry_run):
+    """Supprime les lignes dont la colonne « Semaine » n'est pas la semaine ISO en
+    cours. Lancé par .github/workflows/purge.yml le vendredi à 5h (Paris) : la
+    semaine précédente part, la collecte du matin repart d'un Sheet vide. Ne touche
+    jamais aux lignes de la semaine en cours → sans risque si relancé."""
+    current = get_week_label()
+    # Plages contiguës (numéros de ligne Sheet, 1 = en-tête) à supprimer
+    old = [i + 1 for i, row in enumerate(values) if i > 0 and (row[0] if row else "") != current]
+    if dry_run:
+        log(f"  (dry-run) supprimerait {len(old)} ligne(s) hors {current}", "yellow")
+        return
+    ranges = []
+    for n in old:
+        if ranges and ranges[-1][1] == n - 1:
+            ranges[-1][1] = n
+        else:
+            ranges.append([n, n])
+    for start, end in reversed(ranges):
+        ws.delete_rows(start, end)
+    kept = len(values) - 1 - len(old)
+    log(f"→ {len(old)} ligne(s) des semaines passées supprimée(s), "
+        f"{kept} ligne(s) de {current} conservée(s)", "green")
+
+
 # ─── Mode ENVOI ─────────────────────────────────────────────────────────────
 
 def run_envoi(args):
-    """Fetch PDF → merge → mail Stéphanie → purge. Déclenché par le bouton HTML.
+    """Fetch PDF → merge → mail Stéphanie. Déclenché par le bouton HTML.
 
     Un même PDF « revue de presse » peut compiler plusieurs coupures (voir
     colonne « Pages PDF »). Les articles sont donc identifiés par le couple
@@ -624,7 +652,7 @@ def run_envoi(args):
             log(f"    • {a['media']} | {a['titre']} | {a['date']}", "blue")
         log(f"  PJ : {merged_path.name} — {n_pages} pages, "
             f"{merged_path.stat().st_size / 1024:.0f} Ko", "blue")
-        log("Aucun mail envoyé, aucune purge.", "yellow")
+        log("Aucun mail envoyé.", "yellow")
         return
 
     with open(merged_path, "rb") as fh:
@@ -665,9 +693,13 @@ def run_envoi(args):
     r.raise_for_status()
     log(f"→ Mail envoyé à {to_email} (CC : {', '.join(cc_list)})", "green")
 
-    # 6. Purge (uniquement après envoi réussi)
+    # 6. Pas de purge du Sheet ici : on peut faire plusieurs envois dans la
+    # semaine (plusieurs revues de presse). Les articles restent jusqu'à la purge
+    # du vendredi 5h (purge --older-weeks, workflow purge.yml). Seuls les
+    # fichiers de travail locaux sont nettoyés.
     run_purge(argparse.Namespace(
-        pdf_dir=args.pdf_dir, sheet_only=False, files_only=False, dry_run=False,
+        pdf_dir=args.pdf_dir, sheet_only=False, files_only=True, dry_run=False,
+        older_weeks=False,
     ))
     log("=== ENVOI TERMINÉ ===", "bold")
 
@@ -705,16 +737,18 @@ def main():
     pp.add_argument("--pdf-dir", default="pdfs")
     pp.add_argument("--sheet-only", action="store_true")
     pp.add_argument("--files-only", action="store_true")
+    pp.add_argument("--older-weeks", action="store_true",
+                    help="ne supprime que les lignes des semaines passées (purge du vendredi 5h)")
     pp.add_argument("--dry-run", action="store_true")
 
-    penv = sub.add_parser("envoi", help="fetch + merge PDF + mail Stéphanie + purge")
+    penv = sub.add_parser("envoi", help="fetch + merge PDF + mail Stéphanie (sans purge du Sheet)")
     penv.add_argument("--names", help="sélection explicite, dans l'ordre voulu — utilisée par le "
                      "workflow APRÈS `select` (qui l'a validée et reportée dans le Sheet). "
                      "Sans --names : lecture de la colonne « Sélectionné » du Sheet. "
                      "Format : noms PDF séparés par des virgules, chaque coupure d'un PDF "
                      "compilé suffixée @debut-fin (ex: clips.pdf@2-3)")
     penv.add_argument("--dry-run", action="store_true",
-                     help="affiche les articles retenus puis s'arrête : ni PDF, ni mail, ni purge")
+                     help="affiche les articles retenus puis s'arrête : ni PDF, ni mail")
     penv.add_argument("--days", type=int, default=10)
     penv.add_argument("--pdf-dir", default="pdfs")
 
