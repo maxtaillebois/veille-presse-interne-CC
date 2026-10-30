@@ -50,9 +50,14 @@ réseau Procivis. Objectif : **zéro n8n**. C'est Claude qui analyse les PDF lui
    Écarter tout PDF (ou toute coupure) ne contenant **aucun** des 4 mots-clés.
    Écrire la liste dans `analyses.json`.
 4. `python3 lance_veille_local.py write --analyses analyses.json`
-5. Mail de notification à `maxime.taillebois@procivis.fr`, objet « La veille presse
-   est prête ! », corps court : nombre d'articles + lien
-   `https://maxtaillebois.github.io/procivis-veille-interne/`.
+5. Mail de notification **aux trois personnes qui font la veille**, toutes en TO :
+   `maxime.taillebois@procivis.fr`, `aurelie.hennetier@procivis.fr`,
+   `stephanie@papiersdesoi.fr`. Objet « La veille presse est prête ! », corps court :
+   nombre d'articles + lien `https://maxtaillebois.github.io/procivis-veille-interne/`.
+   **Cette liste est LA référence** : pour ajouter ou retirer quelqu'un, modifier
+   cette ligne et pousser sur `main` (la routine relit ce fichier à chaque run).
+   Ne pas confondre avec les destinataires du **mail final** (Stéphanie en TO, voir
+   « Référentiel »).
 6. En cas d'échec d'une étape : **ne rien écrire dans le Sheet**, prévenir Maxime
    par mail (étape en échec).
 
@@ -162,6 +167,7 @@ petite routine cron du lundi qui lance `purge` si la semaine n'a pas été envoy
 | Colonnes (10) | Semaine, Média, Titre, Date publication, Résumé, Mots-clés trouvés, Contexte citations, Nom fichier PDF, **Pages PDF** *(ex-« ID fichier Drive », abandonnée puis réutilisée — plage 1-indexée « 4-5 », vide si PDF à article unique)*, Sélectionné |
 | Page de sélection | `https://maxtaillebois.github.io/procivis-veille-interne/` (repo `maxtaillebois/procivis-veille-interne`) |
 | Boîte Outlook (lecture + envoi) | `maxime.taillebois@procivis.fr` |
+| Destinataires mail de notification (collecte, vendredi matin) | TO `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr, stephanie@papiersdesoi.fr` — la veille se fait à trois (depuis le 2026-10-30) |
 | Destinataire mail final | TO `stephanie@papiersdesoi.fr` — **CC `maxime.taillebois@procivis.fr, aurelie.hennetier@procivis.fr`** |
 | Recherche Outlook | `$search` plein texte (sujet + corps + expéditeur) sur « retombees », « retombée » — < 7 j, avec PJ. **Aucun filtre sur l'expéditeur** (voir Pièges connus) |
 | n8n | **Hors sujet — plus aucun n8n dans ce processus depuis longtemps.** Tout passe par Claude Code + la GitHub Action. Anciens ID (archive) : W1 `KgSSxM4fCLnvBVTy` · W2 `LgqS9YPx77vPkoI1` · W3 `C7yzQTLVcIfl3aqG` · W4 `al4Sh59yAfsxGRAn`. **Ne pas invoquer n8n comme cause d'un incident** (piste explorée à tort le 2026-07-31). |
